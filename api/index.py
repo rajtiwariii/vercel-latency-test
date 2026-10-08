@@ -1,13 +1,14 @@
 from fastapi import FastAPI, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 import numpy as np
 import json
 import os
 
 app = FastAPI()
 
+# Broad CORS Middleware Setup
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -25,10 +26,9 @@ if os.path.exists(DATA_PATH):
         TELEMETRY_LIST = json.load(f)
 
 class RequestPayload(BaseModel):
-    regions: List[str]
-    threshold_ms: float
+    regions: Optional[List[str]] = []
+    threshold_ms: Optional[float] = 180.0
 
-# Preflight OPTIONS handler to bypass browser CORS errors
 @app.middleware("http")
 async def add_cors_header(request: Request, call_next):
     if request.method == "OPTIONS":
@@ -45,10 +45,12 @@ async def add_cors_header(request: Request, call_next):
 @app.post("/api")
 @app.post("/api/latency")
 def process_telemetry(payload: RequestPayload):
+    threshold = payload.threshold_ms if payload.threshold_ms is not None else 180.0
+    requested_regions = payload.regions if payload.regions else []
+
     res_data = {}
-    threshold = payload.threshold_ms
     
-    for r in payload.regions:
+    for r in requested_regions:
         region_data = [item for item in TELEMETRY_LIST if item.get("region") == r]
         
         if region_data:
@@ -73,5 +75,9 @@ def process_telemetry(payload: RequestPayload):
                 "avg_uptime": 0.0,
                 "breaches": 0
             }
-            
-    return res_data
+
+    # Include both direct keys AND "regions" key to guarantee compatibility
+    return {
+        "regions": res_data,
+        **res_data
+    }
